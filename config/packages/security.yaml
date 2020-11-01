@@ -10,10 +10,23 @@ security:
             entity:
                 class: App\Entity\User
                 property: username
+        api_user_provider:
+            entity:
+                class: App\Entity\User
+                property: apiToken
+        all_users:
+            chain:
+                providers: ['app_user_provider', 'api_user_provider']
     firewalls:
         dev:
             pattern: ^/(_(profiler|wdt)|css|images|js)/
             security: false
+        api:
+            pattern: ^/api/
+            provider: api_user_provider
+            guard:
+                authenticators:
+                    - App\Security\TokenAuthenticator
         main:
             anonymous: lazy
             provider: app_user_provider

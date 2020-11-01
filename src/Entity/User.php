@@ -11,7 +11,7 @@ use Symfony\Component\Security\Core\User\UserInterface;
  * @ORM\Entity(repositoryClass=UserRepository::class)
  * @UniqueEntity(fields={"username"}, message="There is already an account with this username")
  */
-class User implements UserInterface
+class User implements UserInterface, \JsonSerializable
 {
     /**
      * @ORM\Id
@@ -41,26 +41,14 @@ class User implements UserInterface
      */
     private $email;
 
-    public function getId(): ?int
-    {
-        return $this->id;
-    }
-
     /**
-     * A visual identifier that represents this user.
-     *
-     * @see UserInterface
+     * @ORM\Column(type="string", unique=true, length=255, nullable=true)
      */
-    public function getUsername(): string
-    {
-        return (string) $this->username;
-    }
+    private $apiToken;
 
-    public function setUsername(string $username): self
+    public function __construct()
     {
-        $this->username = $username;
-
-        return $this;
+        $this->apiToken = bin2hex(random_bytes(60));
     }
 
     /**
@@ -87,7 +75,7 @@ class User implements UserInterface
      */
     public function getPassword(): string
     {
-        return (string) $this->password;
+        return (string)$this->password;
     }
 
     public function setPassword(string $password): self
@@ -112,6 +100,49 @@ class User implements UserInterface
     {
         // If you store any temporary, sensitive data on the user, clear it here
         // $this->plainPassword = null;
+    }
+
+    public function getApiToken(): ?string
+    {
+        return $this->apiToken;
+    }
+
+    public function setApiToken(?string $apiToken): self
+    {
+        $this->apiToken = $apiToken;
+
+        return $this;
+    }
+
+    public function jsonSerialize()
+    {
+        return [
+            'id' => $this->getId(),
+            'username' => $this->getUsername(),
+            'email' => $this->getEmail()
+        ];
+    }
+
+    public function getId(): ?int
+    {
+        return $this->id;
+    }
+
+    /**
+     * A visual identifier that represents this user.
+     *
+     * @see UserInterface
+     */
+    public function getUsername(): string
+    {
+        return (string)$this->username;
+    }
+
+    public function setUsername(string $username): self
+    {
+        $this->username = $username;
+
+        return $this;
     }
 
     public function getEmail(): ?string

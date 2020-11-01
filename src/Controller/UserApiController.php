@@ -3,6 +3,7 @@
 namespace App\Controller;
 
 use App\Entity\User;
+use App\Exception\NotValidFormFieldException;
 use App\Form\RegistrationFormType;
 use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -13,7 +14,6 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Security\Core\Encoder\UserPasswordEncoderInterface;
 use Symfony\Component\Translation\Exception\NotFoundResourceException;
-use Symfony\Component\Validator\Exception\ValidatorException;
 
 /**
  * @Route("/api/users")
@@ -25,6 +25,7 @@ class UserApiController extends AbstractController
      */
     public function getUsers(UserRepository $userRepository): JsonResponse
     {
+        $user = $this->getUser();
         $users = $userRepository->findAll();
         return new JsonResponse($users);
     }
@@ -40,35 +41,45 @@ class UserApiController extends AbstractController
     {
         try {
             $user = new User();
-            $form = $this->createForm(RegistrationFormType::class, $user, ['csrf_protection' => false]);
-            $this->processForm($request, $form);
-            if ($form->isSubmitted() && !$form->isValid()) {
-                throw new ValidatorException('There was a validation error');
-            }
-            $user->setPassword(
-                $passwordEncoder->encodePassword(
-                    $user,
-                    $form->get('plainPassword')->getData()
-                )
-            );
-            $em->persist($user);
-            $em->flush();
-        } catch (ValidatorException $e) {
-            $errorsFromForm = $this->getErrorsFromForm($form);
+            $this->persistObject($user, $request, $passwordEncoder, $em);
+        } catch (NotValidFormFieldException $e) {
             return new JsonResponse([
                 'error' => $e->getMessage(),
-                'notValidField' => $errorsFromForm
+                'notValidFields' => $e->getFieldsErrors()
             ]);
         } catch (\Exception $e) {
             return new JsonResponse(['error' => "An error occurred while creating the user"], 500);
         }
-        return $this->createJsonResponse($user, "User added successfully");
+        return $this->createJsonResponse($user, "User added successfully", 201);
     }
 
     /**
-     * @param Request $request
-     * @param FormInterface $form
+     * @throws NotValidFormFieldException
      */
+    private function persistObject(
+        User $user,
+        Request $request,
+        UserPasswordEncoderInterface $passwordEncoder,
+        EntityManagerInterface $em
+    ): void
+    {
+        $form = $this->createForm(RegistrationFormType::class, $user, ['csrf_protection' => false]);
+        $this->processForm($request, $form);
+        if ($form->isSubmitted() && !$form->isValid()) {
+            $exception = new NotValidFormFieldException('There was a validation error');
+            $exception->setFieldsErrors($this->getErrorsFromForm($form));
+            throw $exception;
+        }
+        $user->setPassword(
+            $passwordEncoder->encodePassword(
+                $user,
+                $form->get('plainPassword')->getData()
+            )
+        );
+        $em->persist($user);
+        $em->flush();
+    }
+
     private function processForm(Request $request, FormInterface $form): void
     {
         $data = json_decode($request->getContent(), true);
@@ -91,15 +102,11 @@ class UserApiController extends AbstractController
         return $errors;
     }
 
-    /**
-     * @param User $user
-     * @return JsonResponse
-     */
-    private function createJsonResponse(User $user, string $message): JsonResponse
+    private function createJsonResponse(User $user, string $message, int $status): JsonResponse
     {
         $jsonResponse = new JsonResponse([
             'success' => $message,
-        ], 201);
+        ], $status);
         $jsonResponse->headers->set(
             'Location',
             $this->generateUrl("user_get", ["id" => $user->getId()])
@@ -143,24 +150,11 @@ class UserApiController extends AbstractController
                     404
                 );
             }
-            $form = $this->createForm(RegistrationFormType::class, $user, ['csrf_protection' => false]);
-            $this->processForm($request, $form);
-            if ($form->isSubmitted() && !$form->isValid()) {
-                throw new ValidatorException('There was a validation error');
-            }
-            $user->setPassword(
-                $passwordEncoder->encodePassword(
-                    $user,
-                    $form->get('plainPassword')->getData()
-                )
-            );
-            $em->persist($user);
-            $em->flush();
-        } catch (ValidatorException $e) {
-            $errorsFromForm = $this->getErrorsFromForm($form);
+            $this->persistObject($user, $request, $passwordEncoder, $em);
+        } catch (NotValidFormFieldException $e) {
             return new JsonResponse([
                 'error' => $e->getMessage(),
-                'notValidField' => $errorsFromForm
+                'notValidFields' => $e->getFieldsErrors()
             ]);
         } catch (\Exception $e) {
             $code = ($e->getCode()) ?: 500;
@@ -169,10 +163,12 @@ class UserApiController extends AbstractController
             ], $code);
         }
 
-        return $this->createJsonResponse($user, "User data modify successfully.");;
+        return $this->createJsonResponse($user, "User data modify successfully.", 200);
     }
 
-    /** @Route("/{id}", name="user_delete", methods={"DELETE"}) */
+    /**
+     * @Route("/{id}", name="user_delete", methods={"DELETE"})
+     */
     public function deleteUser(
         int $id,
         UserRepository $userRepository,
